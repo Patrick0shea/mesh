@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Database (contains live data, not for version control)
+*.db
+*.db-shm
+*.db-wal
+
+# Build artifacts
+tsconfig.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+
+# Logs
+npm-debug.log*
