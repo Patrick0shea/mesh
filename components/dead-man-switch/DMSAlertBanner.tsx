@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Shield, MapPin, Clock, X, ArrowUp, CheckCircle } from "lucide-react";
+import { sendMessage } from "@/lib/meshtastic/send";
 
 interface DmsEvent {
   id: number;
@@ -82,13 +83,17 @@ export default function DMSAlertBanner({ event, nodes, onUpdate }: Props) {
 
   async function escalateToSos() {
     await patch("escalate");
-    // Also create a SOS event
+    const silentMins = Math.round(event.silence_duration_minutes ?? 0);
+    const alertText = `🚨 SOS ALERT: ${nodeName} — DMS escalated after ${silentMins}m silence`;
+    // Broadcast over radio or MQTT
+    sendMessage(alertText, "^all", 0).catch(() => {/* best effort */});
+    // Create a SOS event record
     await fetch("/api/events", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         node_id: event.node_id,
-        notes: `Escalated from Dead Man's Switch — silent for ${Math.round(event.silence_duration_minutes ?? 0)}m`,
+        notes: `Escalated from Dead Man's Switch — silent for ${silentMins}m`,
       }),
     });
   }

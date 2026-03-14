@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Send, Hash, Radio, ChevronDown } from "lucide-react";
+import { Send, Hash, Radio, ChevronDown, Cloud, WifiOff } from "lucide-react";
 import { sendMessage } from "@/lib/meshtastic/send";
 
 interface Message {
@@ -11,6 +11,7 @@ interface Message {
   channel: number;
   text: string | null;
   timestamp: number;
+  transport: "radio" | "mqtt" | "local" | null;
 }
 
 interface Node {
@@ -96,7 +97,7 @@ export default function MessagesPanel({ nodes }: { nodes: Node[] }) {
 
   // Always include channel 0
   if (!convoMap.has("ch:0")) {
-    convoMap.set("ch:0", { lastMsg: { id: -1, from_node: "", to_node: "^all", channel: 0, text: null, timestamp: 0 }, unread: 0 });
+    convoMap.set("ch:0", { lastMsg: { id: -1, from_node: "", to_node: "^all", channel: 0, text: null, timestamp: 0, transport: null }, unread: 0 });
   }
 
   messages.forEach((msg) => {
@@ -126,7 +127,8 @@ export default function MessagesPanel({ nodes }: { nodes: Node[] }) {
     setSending(true);
     setDraft("");
     try {
-      await sendMessage(text, sendTo, sendChannel);
+      const result = await sendMessage(text, sendTo, sendChannel);
+      console.log(`[send] transport: ${result.transport}`);
       await fetchMessages();
     } catch (e) {
       console.error("Send failed:", e);
@@ -148,7 +150,7 @@ export default function MessagesPanel({ nodes }: { nodes: Node[] }) {
     if (!convoMap.has(key)) {
       // Create a placeholder entry
       convoMap.set(key, {
-        lastMsg: { id: -1, from_node: "", to_node: nodeId, channel: 0, text: null, timestamp: 0 },
+        lastMsg: { id: -1, from_node: "", to_node: nodeId, channel: 0, text: null, timestamp: 0, transport: null },
         unread: 0,
       });
     }
@@ -345,9 +347,20 @@ export default function MessagesPanel({ nodes }: { nodes: Node[] }) {
                         >
                           {msg.text}
                         </div>
-                        <span className="text-[10px] text-mesh-muted mt-0.5 px-1">
-                          {formatTime(msg.timestamp)}
-                        </span>
+                        <div className="flex items-center gap-1 mt-0.5 px-1">
+                          <span className="text-[10px] text-mesh-muted">
+                            {formatTime(msg.timestamp)}
+                          </span>
+                          {isLocal && msg.transport === "radio" && (
+                            <span title="Sent via radio"><Radio size={9} className="text-mesh-online opacity-70" /></span>
+                          )}
+                          {isLocal && msg.transport === "mqtt" && (
+                            <span title="Sent via MQTT"><Cloud size={9} className="text-mesh-accent opacity-70" /></span>
+                          )}
+                          {isLocal && msg.transport === "local" && (
+                            <span title="Local only — no radio or MQTT"><WifiOff size={9} className="text-mesh-muted opacity-50" /></span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );

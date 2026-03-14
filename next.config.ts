@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["better-sqlite3"],
+  serverExternalPackages: ["better-sqlite3", "mqtt"],
   transpilePackages: ["@meshtastic/js", "@meshtastic/protobufs"],
   webpack: (config, { isServer }) => {
     if (!isServer) {
@@ -11,6 +11,8 @@ const nextConfig: NextConfig = {
         fs: false,
         path: false,
         crypto: false,
+        net: false,
+        tls: false,
       };
     }
 

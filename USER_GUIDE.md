@@ -1,3 +1,8 @@
+
+
+
+
+
 # Dashboard User Guide
 
 This guide explains what everything on the screen means and how to use it during a response operation.

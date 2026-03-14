@@ -36,21 +36,35 @@ function statusColor(lastHeard: number | null): string {
 }
 
 function makeMarkerSvg(color: string, role: string, pulse?: "amber" | "red"): string {
-  const size = 28;
-  const pulseRing = pulse
-    ? `<circle cx="14" cy="14" r="13" fill="none" stroke="${pulse === "red" ? "#ef4444" : "#f59e0b"}" stroke-width="2" opacity="0.6">
-        <animate attributeName="r" values="10;14;10" dur="2s" repeatCount="indefinite"/>
-        <animate attributeName="opacity" values="0.8;0;0.8" dur="2s" repeatCount="indefinite"/>
+  const size = pulse === "red" ? 44 : 28;
+  const cx = size / 2;
+  const strokeColor = pulse === "red" ? "#ef4444" : "#f59e0b";
+
+  const pulseRings = pulse === "red"
+    ? `
+      <circle cx="${cx}" cy="${cx}" r="8" fill="none" stroke="${strokeColor}" stroke-width="2.5" opacity="0.9">
+        <animate attributeName="r" values="8;20;8" dur="1.2s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.9;0;0.9" dur="1.2s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="${cx}" cy="${cx}" r="8" fill="none" stroke="${strokeColor}" stroke-width="1.5" opacity="0.5">
+        <animate attributeName="r" values="8;20;8" dur="1.2s" begin="0.4s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.5;0;0.5" dur="1.2s" begin="0.4s" repeatCount="indefinite"/>
+      </circle>`
+    : pulse === "amber"
+    ? `<circle cx="${cx}" cy="${cx}" r="8" fill="none" stroke="${strokeColor}" stroke-width="2" opacity="0.7">
+        <animate attributeName="r" values="8;14;8" dur="2s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.7;0;0.7" dur="2s" repeatCount="indefinite"/>
       </circle>`
     : "";
 
+  const offset = cx - 14;
   const shape =
     role === "ROUTER" || role === "REPEATER"
-      ? `<polygon points="14,4 24,10 24,22 14,28 4,22 4,10" fill="${color}" stroke="#0f1117" stroke-width="2"/>`
-      : `<circle cx="14" cy="14" r="10" fill="${color}" stroke="#0f1117" stroke-width="2"/>`;
+      ? `<polygon points="${14+offset},${4+offset} ${24+offset},${10+offset} ${24+offset},${22+offset} ${14+offset},${28+offset} ${4+offset},${22+offset} ${4+offset},${10+offset}" fill="${color}" stroke="#0f1117" stroke-width="2"/>`
+      : `<circle cx="${cx}" cy="${cx}" r="10" fill="${color}" stroke="#0f1117" stroke-width="2"/>`;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 28 28">
-    ${pulseRing}${shape}
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    ${pulseRings}${shape}
   </svg>`;
 }
 
@@ -141,11 +155,12 @@ export default function MeshMap({
           const color = hasSos ? "#ef4444" : statusColor(node.last_heard);
           const pulse = hasSos ? "red" : hasDms ? "amber" : undefined;
 
+          const iconSize = hasSos ? 44 : 28;
           const icon = L.divIcon({
             html: makeMarkerSvg(color, node.role ?? "CLIENT", pulse),
             className: "",
-            iconSize: [28, 28],
-            iconAnchor: [14, 14],
+            iconSize: [iconSize, iconSize],
+            iconAnchor: [iconSize / 2, iconSize / 2],
           });
 
           const name = node.long_name ?? node.short_name ?? node.node_id;

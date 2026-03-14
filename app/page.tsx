@@ -62,6 +62,7 @@ export default function Home() {
   const [nodes, setNodes] = useState<NodeRecord[]>([]);
   const [sosEvents, setSosEvents] = useState<SosEvent[]>([]);
   const [dmsEvents, setDmsEvents] = useState<DmsEvent[]>([]);
+  const [demoMode, setDemoMode] = useState(false);
 
   useDMSMonitor();
 
@@ -85,6 +86,9 @@ export default function Home() {
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // In live mode, filter out simulated nodes (IDs starting with !sim)
+  const visibleNodes = demoMode ? nodes : nodes.filter(n => !n.node_id.startsWith("!sim"));
 
   const activeSos = sosEvents.filter((e) => !e.resolved_at);
   const activeDms = dmsEvents.filter((e) => !e.resolution);
@@ -132,9 +136,20 @@ export default function Home() {
           <div className="flex items-center gap-1.5">
             <Activity size={12} className="text-mesh-online" />
             <span className="text-xs text-mesh-muted">
-              {nodes.length} node{nodes.length !== 1 ? "s" : ""}
+              {visibleNodes.length} node{visibleNodes.length !== 1 ? "s" : ""}
             </span>
           </div>
+          <button
+            onClick={() => setDemoMode(m => !m)}
+            className={`ml-2 px-2.5 py-1 rounded text-[11px] font-semibold tracking-wide transition-colors ${
+              demoMode
+                ? "bg-mesh-warn/20 text-mesh-warn border border-mesh-warn/40"
+                : "bg-mesh-online/10 text-mesh-online border border-mesh-online/30"
+            }`}
+            title={demoMode ? "Showing simulated + real nodes" : "Showing real nodes only"}
+          >
+            {demoMode ? "DEMO" : "LIVE"}
+          </button>
         </div>
         <ConnectionPanel />
       </header>
@@ -144,7 +159,7 @@ export default function Home() {
         <DMSAlertBanner
           key={event.id}
           event={event}
-          nodes={nodes}
+          nodes={visibleNodes}
           onUpdate={refreshDms}
         />
       ))}
@@ -186,7 +201,7 @@ export default function Home() {
         {/* Sidebar — hidden on messages tab (it has its own sidebar) */}
         {!fullscreen && (
           <aside className="w-72 border-r border-mesh-border flex flex-col overflow-hidden shrink-0">
-            <NodeList nodes={nodes} />
+            <NodeList nodes={visibleNodes} />
             <div className="flex-1 overflow-hidden border-t border-mesh-border">
               <MessageLog />
             </div>
@@ -196,17 +211,17 @@ export default function Home() {
         {/* Content area */}
         <main className="flex-1 overflow-hidden">
           {activeTab === "map" && (
-            <MeshMap nodes={nodes} sosEvents={activeSos} dmsEvents={activeDms} />
+            <MeshMap nodes={visibleNodes} sosEvents={activeSos} dmsEvents={activeDms} />
           )}
           {activeTab === "topology" && <TopologyViewer />}
-          {activeTab === "messages" && <MessagesPanel nodes={nodes} />}
+          {activeTab === "messages" && <MessagesPanel nodes={visibleNodes} />}
           {activeTab === "dms" && (
             <div className="h-full overflow-auto p-4">
-              <DMSEventLog events={dmsEvents} nodes={nodes} />
+              <DMSEventLog events={dmsEvents} nodes={visibleNodes} />
             </div>
           )}
           {activeTab === "alerts" && (
-            <SOSAlerts events={sosEvents} nodes={nodes} onUpdate={refreshSos} />
+            <SOSAlerts events={sosEvents} nodes={visibleNodes} onUpdate={refreshSos} />
           )}
         </main>
       </div>

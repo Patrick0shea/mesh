@@ -28,11 +28,75 @@ Open [http://localhost:3000](http://localhost:3000). The simulator will populate
 | Framework | Next.js 15 (App Router, TypeScript) |
 | Database | SQLite via `better-sqlite3` |
 | Radio protocol | `@meshtastic/js` (WebSerial + Web Bluetooth) |
+| MQTT transport | `mqtt` (MQTT.js — server-side, persistent) |
 | Map | Leaflet + react-leaflet |
 | Topology graph | D3.js v7 (force simulation) |
 | Styling | Tailwind CSS (dark theme) |
 
 > **Browser requirement:** USB Serial connection requires Chrome or Edge (WebSerial API). Bluetooth requires Chrome over HTTPS or localhost.
+
+---
+
+## MQTT Transport Setup
+
+The dashboard connects to the Meshtastic public MQTT broker on startup. This gives you a second message path — over the internet — that works even when no USB/BLE radio is physically connected to the dashboard machine.
+
+### Message transport priority
+
+1. **USB Serial** — fastest, no internet needed
+2. **Bluetooth** — no internet needed
+3. **MQTT** — internet required, works remotely
+4. **Local only** — message saved in the dashboard DB but not transmitted
+
+The transport used for each sent message is shown as a small icon (radio / cloud / no signal) next to the timestamp.
+
+### Device configuration checklist
+
+Your Meshtastic device must be configured to bridge to MQTT for downlink messages to reach it.
+
+**In the Meshtastic app (phone or web):**
+
+1. **MQTT module** → Enable → turn on **Client Proxy** (lets your phone proxy MQTT through the app)
+2. **Primary channel** → Settings → enable both **Uplink** and **Downlink**
+3. **Create a secondary channel** named exactly `mqtt` → enable **Downlink** on it
+4. The dashboard publishes to `msh/EU_868/2/json/mqtt/` — the channel name in topic and the channel named "mqtt" must match
+
+### Finding your decimal node ID
+
+The `MY_NODE_ID` environment variable must be set to the **decimal** form of your node's hex ID. This populates the `from` field in outbound MQTT messages.
+
+```bash
+# Your hex node ID looks like !a1b2c3d4 (visible in the app, or in the Node List sidebar)
+# Strip the ! and convert:
+node -e "console.log(parseInt('a1b2c3d4', 16))"
+# → 2712847316
+```
+
+Set this in `.env.local`:
+```
+MY_NODE_ID=2712847316
+```
+
+### Environment variables (`.env.local`)
+
+```
+MQTT_BROKER_URL=mqtt://mqtt.meshtastic.org:1883
+MQTT_USERNAME=meshdev
+MQTT_PASSWORD=large4cats
+MQTT_ROOT_TOPIC=msh/EU_868      # change for your region (US_915, ANZ, etc.)
+MY_NODE_ID=0                    # replace with your decimal node ID
+```
+
+Copy `.env.local.example` to `.env.local` and fill in `MY_NODE_ID`.
+
+### MQTT status indicator
+
+A small badge in the top-right header shows MQTT connection state:
+- **Green dot** — connected and subscribed
+- **Amber dot** (pulsing) — reconnecting
+- **Red dot** — disconnected
+
+The server automatically reconnects with a 5-second retry period.
 
 ---
 

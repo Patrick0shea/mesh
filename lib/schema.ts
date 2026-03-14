@@ -27,7 +27,8 @@ export function initSchema(db: Database.Database): void {
       channel INTEGER DEFAULT 0,
       text TEXT,
       timestamp INTEGER,
-      packet_id TEXT
+      packet_id TEXT,
+      transport TEXT
     );
 
     CREATE TABLE IF NOT EXISTS sos_events (

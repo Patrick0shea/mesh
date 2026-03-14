@@ -1,17 +1,38 @@
 "use client";
 
-import { useState } from "react";
-import { Usb, Bluetooth, Unplug, Loader2, AlertTriangle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Usb, Bluetooth, Unplug, Loader2, AlertTriangle, Cloud } from "lucide-react";
 
 type ConnState = "disconnected" | "connecting" | "connected" | "error";
+type MqttStatus = "connected" | "connecting" | "disconnected";
 
 export default function ConnectionPanel() {
   const [connState, setConnState] = useState<ConnState>("disconnected");
   const [connType, setConnType] = useState<"serial" | "bluetooth" | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [mqttStatus, setMqttStatus] = useState<MqttStatus>("disconnected");
 
   const hasSerial = typeof navigator !== "undefined" && "serial" in navigator;
   const hasBluetooth = typeof navigator !== "undefined" && "bluetooth" in navigator;
+
+  // Poll MQTT status every 10 seconds
+  useEffect(() => {
+    let active = true;
+    async function fetchMqttStatus() {
+      try {
+        const res = await fetch("/api/mqtt/status");
+        if (res.ok && active) {
+          const data = await res.json() as { status: MqttStatus };
+          setMqttStatus(data.status);
+        }
+      } catch {
+        if (active) setMqttStatus("disconnected");
+      }
+    }
+    fetchMqttStatus();
+    const interval = setInterval(fetchMqttStatus, 10_000);
+    return () => { active = false; clearInterval(interval); };
+  }, []);
 
   async function connectSerial() {
     if (!hasSerial) {
@@ -68,14 +89,30 @@ export default function ConnectionPanel() {
     error: "text-mesh-danger",
   }[connState];
 
+  const mqttDotColor = {
+    connected: "bg-mesh-online",
+    connecting: "bg-mesh-warn",
+    disconnected: "bg-mesh-danger",
+  }[mqttStatus];
+
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-3">
       {errorMsg && (
         <div className="flex items-center gap-1 text-xs text-mesh-danger">
           <AlertTriangle size={12} />
           <span>{errorMsg}</span>
         </div>
       )}
+
+      {/* MQTT status badge */}
+      <div
+        className="flex items-center gap-1.5 px-2 py-1 rounded bg-mesh-border"
+        title={`MQTT: ${mqttStatus}`}
+      >
+        <span className={`w-1.5 h-1.5 rounded-full ${mqttDotColor} ${mqttStatus === "connecting" ? "animate-pulse" : ""}`} />
+        <Cloud size={11} className="text-mesh-muted" />
+        <span className="text-[11px] text-mesh-muted">MQTT</span>
+      </div>
 
       <span className={`text-xs font-medium ${stateColor}`}>
         {connState === "connecting" && <Loader2 size={12} className="inline animate-spin mr-1" />}

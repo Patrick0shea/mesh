@@ -28,16 +28,11 @@ interface SimNode {
 }
 
 const NAMES = [
-  { long: "Alpha Base", short: "ALPH", role: "ROUTER" as const },
-  { long: "Bravo Team", short: "BRAV", role: "CLIENT" as const },
-  { long: "Charlie Post", short: "CHAR", role: "ROUTER" as const },
-  { long: "Delta Unit", short: "DELT", role: "CLIENT" as const },
-  { long: "Echo Relay", short: "ECHO", role: "REPEATER" as const },
-  { long: "Foxtrot Scout", short: "FOX1", role: "CLIENT" as const },
-  { long: "Golf Mobile", short: "GOLF", role: "CLIENT" as const },
-  { long: "Hotel Station", short: "HOTL", role: "ROUTER" as const },
-  { long: "India Field", short: "INDI", role: "CLIENT" as const },
-  { long: "Juliet Medic", short: "JULI", role: "CLIENT" as const },
+  { long: "Alpha Base",    short: "ALPH", role: "ROUTER"   as const },
+  { long: "Bravo Team",   short: "BRAV", role: "CLIENT"   as const },
+  { long: "Charlie Post", short: "CHAR", role: "ROUTER"   as const },
+  { long: "Delta Unit",   short: "DELT", role: "CLIENT"   as const },
+  { long: "Echo Relay",   short: "ECHO", role: "REPEATER" as const },
 ];
 
 function randId(): string {
@@ -58,29 +53,20 @@ let nodes: SimNode[] = NAMES.map((n, i) => ({
   lon: LIMERICK_LON + randOffset(0.07),
   battery: 60 + Math.floor(Math.random() * 40),
   lastSeen: Math.floor(Date.now() / 1000),
-  dmsEnabled: i === 3 || i === 8, // Delta and India have DMS enabled
+  dmsEnabled: i === 3, // Only Delta Unit has DMS enabled
   dmsSilenced: false,
   dmsSilenceAt: null,
 }));
 
 // ---- Neighbour topology (static topology with SNR) --------------------------
-// Each ROUTER sees 3–4 nodes; clients see 1–2 routers
 const topology: Array<[number, number, number]> = [
   // [nodeIdx, neighbourIdx, snr]
   [0, 1, 9.5],   // Alpha ↔ Bravo
   [0, 2, 7.2],   // Alpha ↔ Charlie
   [0, 4, 11.0],  // Alpha ↔ Echo
-  [0, 7, 6.8],   // Alpha ↔ Hotel
   [1, 4, 4.2],   // Bravo ↔ Echo
-  [1, 5, 2.1],   // Bravo ↔ Foxtrot
   [2, 3, 8.9],   // Charlie ↔ Delta
-  [2, 6, 5.5],   // Charlie ↔ Golf
-  [2, 9, 3.8],   // Charlie ↔ Juliet
-  [4, 7, 12.3],  // Echo ↔ Hotel
-  [5, 6, 1.2],   // Foxtrot ↔ Golf
-  [7, 8, 9.1],   // Hotel ↔ India
-  [7, 9, 7.7],   // Hotel ↔ Juliet
-  [3, 8, -2.1],  // Delta ↔ India (weak link)
+  [3, 4, -2.1],  // Delta ↔ Echo (weak link)
 ];
 
 const MESSAGES = [
@@ -167,36 +153,29 @@ async function broadcastNeighbourInfo() {
 }
 
 async function sendMessages() {
-  // 2–3 random messages per tick
-  const count = 2 + Math.floor(Math.random() * 2);
-  for (let i = 0; i < count; i++) {
-    const sender = nodes[Math.floor(Math.random() * nodes.length)];
-    if (sender.dmsSilenced) continue;
-    const text = MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
-
-    await post("/api/messages", {
-      from_node: sender.id,
-      to_node: "^all",
-      channel: 0,
-      text: `[${sender.shortName}] ${text}`,
-      timestamp: Math.floor(Date.now() / 1000),
-    });
-  }
-  console.log(`[${ts()}] Messages sent`);
+  // 1 message per tick from a random active node
+  const active = nodes.filter(n => !n.dmsSilenced);
+  if (active.length === 0) return;
+  const sender = active[Math.floor(Math.random() * active.length)];
+  const text = MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
+  await post("/api/messages", {
+    from_node: sender.id,
+    to_node: "^all",
+    channel: 0,
+    text: `[${sender.shortName}] ${text}`,
+    timestamp: Math.floor(Date.now() / 1000),
+  });
+  console.log(`[${ts()}] Message: [${sender.shortName}] ${text}`);
 }
 
 async function maybeTriggerSos() {
-  for (const node of nodes) {
-    if (node.dmsSilenced) continue;
-    if (Math.random() < 0.04) {  // 4% chance per node per tick
-      await post("/api/events", {
-        node_id: node.id,
-        triggered_at: Math.floor(Date.now() / 1000),
-        notes: `SOS from ${node.longName}`,
-      });
-      console.log(`[${ts()}] SOS triggered: ${node.longName}`);
-    }
-  }
+  // No random SOS — triggered only by real canned messages from the device
+  // Uncomment below to re-enable random SOS for testing:
+  // for (const node of nodes) {
+  //   if (!node.dmsSilenced && Math.random() < 0.04) {
+  //     await post("/api/events", { node_id: node.id, triggered_at: Math.floor(Date.now() / 1000), notes: `SOS from ${node.longName}` });
+  //   }
+  // }
 }
 
 async function manageDmsSilence() {
@@ -259,11 +238,11 @@ async function main() {
   await sendMessages();
 
   // Loops
-  setInterval(upsertNodes, 10_000);           // every 10s
-  setInterval(sendMessages, 15_000);           // every 15s
-  setInterval(broadcastNeighbourInfo, 30_000); // every 30s
-  setInterval(maybeTriggerSos, 20_000);        // every 20s
-  setInterval(manageDmsSilence, 45_000);       // every 45s (DMS demo)
+  setInterval(upsertNodes, 30_000);            // every 30s
+  setInterval(sendMessages, 60_000);            // every 60s — one message per minute
+  setInterval(broadcastNeighbourInfo, 60_000);  // every 60s
+  setInterval(maybeTriggerSos, 60_000);         // every 60s (disabled — no-op)
+  setInterval(manageDmsSilence, 120_000);       // every 2 min (DMS demo)
 
   console.log("Simulation running. Press Ctrl+C to stop.\n");
 }
