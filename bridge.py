@@ -17,6 +17,7 @@ Requirements:
 
 import meshtastic
 import meshtastic.serial_interface
+from pubsub import pub
 import requests
 import time
 
@@ -88,8 +89,8 @@ def on_receive(packet, interface):
 
 
 print("Connecting to TBEAM via USB serial...")
+pub.subscribe(on_receive, "meshtastic.receive")
 iface = meshtastic.serial_interface.SerialInterface(devPath="/dev/ttyACM0")
-iface.onReceive = on_receive
 print(f"Bridge running — listening for LoRa packets on {BASE_URL}")
 print("Ctrl+C to stop.\n")
 
