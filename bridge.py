@@ -88,7 +88,7 @@ def on_receive(packet, interface):
 
 
 print("Connecting to TBEAM via USB serial...")
-iface = meshtastic.serial_interface.SerialInterface()
+iface = meshtastic.serial_interface.SerialInterface(devPath="/dev/ttyACM0")
 iface.onReceive = on_receive
 print(f"Bridge running — listening for LoRa packets on {BASE_URL}")
 print("Ctrl+C to stop.\n")
