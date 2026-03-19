@@ -4,6 +4,10 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Send, Hash, Radio, ChevronDown, Cloud, WifiOff } from "lucide-react";
 import { sendMessage } from "@/lib/meshtastic/send";
 
+const NODE_NAMES: Record<string, string> = {
+  "!bbad0fd4": "Base Station",
+};
+
 interface Message {
   id: number;
   from_node: string;
@@ -323,7 +327,7 @@ export default function MessagesPanel({ nodes }: { nodes: Node[] }) {
                   const senderNode = nodes.find((n) => n.node_id === msg.from_node);
                   const senderName = isLocal
                     ? "You"
-                    : senderNode?.long_name ?? senderNode?.short_name ?? msg.from_node.slice(-6).toUpperCase();
+                    : NODE_NAMES[msg.from_node] ?? senderNode?.long_name ?? senderNode?.short_name ?? msg.from_node.slice(-6).toUpperCase();
                   const showSender =
                     i === 0 || msgs[i - 1].from_node !== msg.from_node;
 
