@@ -20,8 +20,49 @@ import meshtastic.serial_interface
 from pubsub import pub
 import requests
 import time
+import threading
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 BASE_URL = "http://localhost:3000"
+BRIDGE_HTTP_PORT = 5001
+iface = None
+
+
+class BridgeHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass  # silence default access logs
+
+    def do_POST(self):
+        if self.path != "/send":
+            self.send_response(404)
+            self.end_headers()
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+            text = body.get("text", "")
+            to = body.get("to", "^all")
+            channel = int(body.get("channel", 0))
+            dest = None if to == "^all" else int(to.replace("!", ""), 16)
+            print(f'[bridge] Sending: "{text}" to {to}')
+            iface.sendText(text, destinationId=dest, channelIndex=channel)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"success":true}')
+        except Exception as e:
+            print(f"[bridge] send error: {e}")
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"success":false}')
+
+
+def start_http_server():
+    server = HTTPServer(("127.0.0.1", BRIDGE_HTTP_PORT), BridgeHandler)
+    print(f"Bridge HTTP server listening on port {BRIDGE_HTTP_PORT}")
+    server.serve_forever()
 
 
 def on_receive(packet, interface):
@@ -91,6 +132,10 @@ def on_receive(packet, interface):
 print("Connecting to TBEAM via USB serial...")
 pub.subscribe(on_receive, "meshtastic.receive")
 iface = meshtastic.serial_interface.SerialInterface(devPath="/dev/ttyACM0")
+
+http_thread = threading.Thread(target=start_http_server, daemon=True)
+http_thread.start()
+
 print(f"Bridge running — listening for LoRa packets on {BASE_URL}")
 print("Ctrl+C to stop.\n")
 

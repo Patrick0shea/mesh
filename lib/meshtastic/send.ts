@@ -4,7 +4,8 @@
 //   1. USB Serial radio  (if connected)
 //   2. Bluetooth radio   (if connected)
 //   3. MQTT              (via /api/mqtt/send — server-side broker)
-//   4. Local DB only     (no outbound path — message appears in feed but not sent)
+//   4. Bridge            (via /api/bridge/send → bridge.py → LoRa, Pi deployment)
+//   5. Local DB only     (no outbound path — message appears in feed but not sent)
 //
 // Always saves to the local DB so the message appears in the feed immediately.
 
@@ -73,7 +74,22 @@ export async function sendMessage(
     // MQTT not available
   }
 
-  // --- 4. Local only ---
+  // --- 4. Try bridge (Pi deployment) ---
+  try {
+    const res = await fetch("/api/bridge/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, to: toNodeId, channel }),
+    });
+    if (res.ok) {
+      const data = await res.json() as { success: boolean };
+      if (data.success) return { transport: "radio" };
+    }
+  } catch {
+    // bridge not available
+  }
+
+  // --- 5. Local only ---
   await fetch("/api/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
