@@ -44,7 +44,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             text = body.get("text", "")
             to = body.get("to", "^all")
             channel = int(body.get("channel", 0))
-            dest = None if to == "^all" else int(to.replace("!", ""), 16)
+            dest = "^all" if to == "^all" else int(to.replace("!", ""), 16)
             print(f'[bridge] Sending: "{text}" to {to}')
             iface.sendText(text, destinationId=dest, channelIndex=channel)
             self.send_response(200)
