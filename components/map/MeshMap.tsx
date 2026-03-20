@@ -131,10 +131,12 @@ export default function MeshMap({
 
   // Update markers when nodes change
   useEffect(() => {
-    const map = leafletMap.current;
-    if (!map) return;
+    if (!leafletMap.current) return;
 
     import("leaflet").then((mod) => {
+      const map = leafletMap.current;
+      if (!map) return; // map was destroyed while leaflet was loading
+
       const L = mod.default;
       const currentIds = new Set(nodes.map((n) => n.node_id));
 
