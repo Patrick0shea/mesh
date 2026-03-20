@@ -219,6 +219,56 @@ function ts(): string {
   return new Date().toLocaleTimeString();
 }
 
+// ---- Demo keyboard controls -------------------------------------------------
+
+async function forceSos() {
+  const active = nodes.filter(n => !n.dmsSilenced);
+  if (active.length === 0) { console.log("No active nodes to trigger SOS"); return; }
+  const target = active[Math.floor(Math.random() * active.length)];
+  await post("/api/events", {
+    node_id: target.id,
+    triggered_at: Math.floor(Date.now() / 1000),
+    notes: `SOS from ${target.longName} [DEMO]`,
+  });
+  await post("/api/messages", {
+    from_node: target.id,
+    to_node: "^all",
+    channel: 0,
+    text: `[${target.shortName}] SOS - Need assistance`,
+    timestamp: Math.floor(Date.now() / 1000),
+  });
+  console.log(`[${ts()}] >>> FORCED SOS from ${target.longName}`);
+}
+
+async function forceDmsSilence() {
+  const delta = nodes.find(n => n.longName === "Delta Unit");
+  if (!delta) return;
+  if (delta.dmsSilenced) {
+    // Un-silence if already silent
+    delta.dmsSilenced = false;
+    delta.dmsSilenceAt = null;
+    delta.lastSeen = Math.floor(Date.now() / 1000);
+    console.log(`[${ts()}] >>> Delta Unit back online`);
+  } else {
+    delta.dmsSilenced = true;
+    delta.dmsSilenceAt = Math.floor(Date.now() / 1000);
+    console.log(`[${ts()}] >>> Delta Unit silenced — DMS will fire in ~2 min`);
+  }
+}
+
+function setupKeyboardControls() {
+  if (!process.stdin.isTTY) return;
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", async (key: string) => {
+    if (key === "\u0003") process.exit(); // Ctrl+C
+    if (key === "s" || key === "S") await forceSos();
+    if (key === "d" || key === "D") await forceDmsSilence();
+  });
+  console.log("  [s] Force SOS   [d] Toggle Delta Unit silence   [Ctrl+C] Quit\n");
+}
+
 // ---- Main -------------------------------------------------------------------
 
 async function main() {
@@ -239,12 +289,12 @@ async function main() {
 
   // Loops
   setInterval(upsertNodes, 30_000);            // every 30s
-  setInterval(sendMessages, 60_000);            // every 60s — one message per minute
-  setInterval(broadcastNeighbourInfo, 60_000);  // every 60s
-  setInterval(maybeTriggerSos, 60_000);         // every 60s (disabled — no-op)
-  setInterval(manageDmsSilence, 120_000);       // every 2 min (DMS demo)
+  setInterval(sendMessages, 60_000);           // every 60s — one message per minute
+  setInterval(broadcastNeighbourInfo, 60_000); // every 60s
+  setInterval(manageDmsSilence, 120_000);      // every 2 min (DMS demo)
 
-  console.log("Simulation running. Press Ctrl+C to stop.\n");
+  setupKeyboardControls();
+  console.log("Simulation running.\n");
 }
 
 main().catch(console.error);
