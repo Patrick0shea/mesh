@@ -1,6 +1,81 @@
 # Mesh — Disaster Response Coordinator
 
-A real-time dashboard for coordinating Meshtastic radio mesh networks during disaster response operations. Tracks node positions on a map, visualises network topology, monitors messages, handles SOS alerts, and implements a Dead Man's Switch safety system for field operatives.
+A command and control dashboard for emergency responders using Meshtastic LoRa mesh radio networks. Built to work with zero internet, zero phone signal, and zero infrastructure — because those are exactly the conditions you face when things go wrong.
+
+---
+
+## The Problem
+
+When a disaster hits — flood, earthquake, power outage — the first thing that goes is the phone network. Emergency coordinators lose visibility of their field teams. People die because no one knows where they are or whether they're in trouble.
+
+This is built to solve that. Field operatives carry **LILYGO T-Beam** devices — compact ESP32 boards with a LoRa radio, GPS, and a small screen. They communicate purely by radio. A base station Raspberry Pi running this dashboard receives those radio packets and displays everything in a browser accessible to any coordinator on the same local WiFi. No internet. No cloud. No dependencies that can fail.
+
+```
+[Field operative]
+  T-Beam in 3D printed case
+        |
+        | LoRa radio — 868MHz, up to 10km per hop
+        |
+[Intermediate nodes] ← automatic multi-hop routing
+        |
+        | LoRa radio
+        |
+[Base station T-Beam] — plugged into Raspberry Pi via USB
+        |
+        | USB serial
+        |
+[bridge.py on Pi] — decodes Meshtastic packets, POSTs to dashboard API
+        |
+        | HTTP on localhost
+        |
+[Next.js dashboard on Pi] — stores in SQLite, serves to browsers
+        |
+        | Local WiFi (Pi hotspot or shared network)
+        |
+[Coordinator's browser] — live map, messages, alerts
+```
+
+---
+
+## What the Dashboard Shows
+
+**Map** — Live GPS positions of all field nodes on an OpenStreetMap base. SOS nodes flash red with a pulsing ring. Node colour shows last contact: green (< 5 min), amber (5–15 min), red (> 15 min).
+
+**Topology** — Force-directed graph of the mesh. Shows which nodes can hear each other, SNR of every link, and a real-time mesh health score. Routers show as hexagons, clients as circles.
+
+**Messages** — All text received from the mesh, in order, with node name and timestamp. Persistent across page refresh.
+
+**Dead Man's Switch** — The most important tab. Fires an alert automatically if a field operative goes silent for longer than their configured timeout. If someone is unconscious and cannot press SOS, this catches it. Silence itself is the trigger. Unacknowledged alerts escalate to full SOS.
+
+**SOS Alerts** — Dedicated view for all active SOS events. One-click acknowledge. The node flashes red on the map.
+
+---
+
+## Why Not Just Use Walkie-Talkies?
+
+| | Walkie-talkie | This system |
+|---|---|---|
+| Communication type | Voice only | Text + GPS + data |
+| Range extension | No | Yes — multi-hop mesh |
+| Message history | Gone if you miss it | Stored in SQLite |
+| GPS tracking | No | Yes — live map |
+| Automated alerts | No | Yes — DMS fires on silence |
+| Multi-user visibility | One device, one user | Anyone on the WiFi |
+| Infrastructure needed | None | None |
+
+---
+
+## Hardware
+
+| Component | Purpose |
+|---|---|
+| LILYGO T-Beam (×N) | Field devices — LoRa radio + GPS + ESP32 + OLED |
+| Raspberry Pi 4 or 5 | Base station — runs dashboard + bridge |
+| USB-A to USB-C cable | Connects T-Beam to Pi |
+| Power bank / 18650 cells | Field device battery |
+| Car battery / solar | Pi power in the field |
+
+A 5-node deployment runs around €300–350. No subscriptions, no licences — 868MHz is an unlicensed ISM band in Europe.
 
 ---
 
@@ -13,11 +88,60 @@ npm install
 # Start the dashboard
 npm run dev
 
-# In a second terminal — run the simulator (no radio hardware needed)
+# In a second terminal — run the simulator (no hardware needed)
 npx tsx scripts/simulate-nodes.ts
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The simulator will populate the dashboard with 10 fake nodes around Limerick city within a few seconds.
+Open `http://localhost:3000`. The simulator populates the dashboard with 10 nodes around Limerick city within seconds.
+
+**Simulator keyboard controls:**
+- `s` — trigger SOS on a random node
+- `d` — toggle Delta Unit silent (Dead Man's Switch demo, fires after ~2 min)
+- `Ctrl+C` — quit
+
+---
+
+## Running With Real Hardware (Pi Deployment)
+
+```bash
+# Terminal 1 — dashboard
+npm start
+
+# Terminal 2 — bridge (reads from T-Beam over USB, posts to dashboard)
+python3 bridge.py
+
+# Terminal 3 — simulator (optional, for demo alongside real hardware)
+npx tsx scripts/simulate-nodes.ts
+```
+
+`bridge.py` connects to the T-Beam on `/dev/ttyACM0`, decodes Meshtastic protobuf packets, and forwards them as REST calls to the dashboard. It also hosts a small HTTP server on port 5001 so the dashboard can send messages back out through the radio.
+
+---
+
+## MQTT (Internet Fallback)
+
+When internet is available, the dashboard connects to the public Meshtastic MQTT broker. This gives a second message path — useful for testing or for internet-connected nodes to reach the dashboard. It is a fallback only; the system is fully functional without it.
+
+**Transport priority:**
+1. USB Serial (bridge.py) — no internet needed
+2. Bluetooth — no internet needed
+3. MQTT — internet required
+4. Local only — saved to DB, not transmitted
+
+### Environment variables (`.env.local`)
+
+```
+MQTT_BROKER_URL=mqtt://mqtt.meshtastic.org:1883
+MQTT_USERNAME=meshdev
+MQTT_PASSWORD=large4cats
+MQTT_ROOT_TOPIC=msh/EU_868
+MY_NODE_ID=0   # replace with your decimal node ID
+```
+
+To find your decimal node ID:
+```bash
+node -e "console.log(parseInt('a1b2c3d4', 16))"
+```
 
 ---
 
@@ -27,76 +151,14 @@ Open [http://localhost:3000](http://localhost:3000). The simulator will populate
 |---|---|
 | Framework | Next.js 15 (App Router, TypeScript) |
 | Database | SQLite via `better-sqlite3` |
-| Radio protocol | `@meshtastic/js` (WebSerial + Web Bluetooth) |
-| MQTT transport | `mqtt` (MQTT.js — server-side, persistent) |
-| Map | Leaflet + react-leaflet |
-| Topology graph | D3.js v7 (force simulation) |
+| Radio bridge | Python 3 (`meshtastic`, `requests`) |
+| Browser radio | `@meshtastic/js` (WebSerial + Web Bluetooth) |
+| MQTT | `mqtt` (MQTT.js — server-side singleton) |
+| Map | Leaflet + OpenStreetMap |
+| Topology graph | D3.js v7 force simulation |
 | Styling | Tailwind CSS (dark theme) |
 
-> **Browser requirement:** USB Serial connection requires Chrome or Edge (WebSerial API). Bluetooth requires Chrome over HTTPS or localhost.
-
----
-
-## MQTT Transport Setup
-
-The dashboard connects to the Meshtastic public MQTT broker on startup. This gives you a second message path — over the internet — that works even when no USB/BLE radio is physically connected to the dashboard machine.
-
-### Message transport priority
-
-1. **USB Serial** — fastest, no internet needed
-2. **Bluetooth** — no internet needed
-3. **MQTT** — internet required, works remotely
-4. **Local only** — message saved in the dashboard DB but not transmitted
-
-The transport used for each sent message is shown as a small icon (radio / cloud / no signal) next to the timestamp.
-
-### Device configuration checklist
-
-Your Meshtastic device must be configured to bridge to MQTT for downlink messages to reach it.
-
-**In the Meshtastic app (phone or web):**
-
-1. **MQTT module** → Enable → turn on **Client Proxy** (lets your phone proxy MQTT through the app)
-2. **Primary channel** → Settings → enable both **Uplink** and **Downlink**
-3. **Create a secondary channel** named exactly `mqtt` → enable **Downlink** on it
-4. The dashboard publishes to `msh/EU_868/2/json/mqtt/` — the channel name in topic and the channel named "mqtt" must match
-
-### Finding your decimal node ID
-
-The `MY_NODE_ID` environment variable must be set to the **decimal** form of your node's hex ID. This populates the `from` field in outbound MQTT messages.
-
-```bash
-# Your hex node ID looks like !a1b2c3d4 (visible in the app, or in the Node List sidebar)
-# Strip the ! and convert:
-node -e "console.log(parseInt('a1b2c3d4', 16))"
-# → 2712847316
-```
-
-Set this in `.env.local`:
-```
-MY_NODE_ID=2712847316
-```
-
-### Environment variables (`.env.local`)
-
-```
-MQTT_BROKER_URL=mqtt://mqtt.meshtastic.org:1883
-MQTT_USERNAME=meshdev
-MQTT_PASSWORD=large4cats
-MQTT_ROOT_TOPIC=msh/EU_868      # change for your region (US_915, ANZ, etc.)
-MY_NODE_ID=0                    # replace with your decimal node ID
-```
-
-Copy `.env.local.example` to `.env.local` and fill in `MY_NODE_ID`.
-
-### MQTT status indicator
-
-A small badge in the top-right header shows MQTT connection state:
-- **Green dot** — connected and subscribed
-- **Amber dot** (pulsing) — reconnecting
-- **Red dot** — disconnected
-
-The server automatically reconnects with a 5-second retry period.
+> **Browser note:** USB Serial requires Chrome or Edge (WebSerial API). Bluetooth requires Chrome over HTTPS or localhost.
 
 ---
 
@@ -105,248 +167,82 @@ The server automatically reconnects with a 5-second retry period.
 ```
 mesh/
 ├── app/
-│   ├── layout.tsx              # Root HTML shell, imports global CSS
-│   ├── page.tsx                # Main dashboard — tab routing, data polling, DMS monitor
-│   ├── globals.css             # Tailwind + Leaflet CSS
+│   ├── page.tsx                # Main dashboard — tabs, polling, DMS monitor
 │   └── api/
-│       ├── nodes/route.ts          # GET all nodes / POST upsert node
-│       ├── messages/route.ts       # GET messages (paginated) / POST new message
-│       ├── events/route.ts         # GET SOS events / POST new SOS / PATCH acknowledge
-│       ├── packets/route.ts        # POST raw packet log
-│       ├── neighbour-info/route.ts # GET topology data / POST upsert edge
+│       ├── nodes/              # GET all nodes / POST upsert
+│       ├── messages/           # GET messages / POST new
+│       ├── events/             # GET/POST/PATCH SOS events
+│       ├── neighbour-info/     # GET topology graph / POST edge
 │       └── dead-man-switch/
-│           ├── config/route.ts     # GET/POST DMS config per node
-│           └── events/route.ts     # GET DMS events / POST trigger / PATCH resolve
+│           ├── config/         # GET/POST DMS config per node
+│           └── events/         # GET/POST/PATCH DMS events
 │
 ├── components/
-│   ├── dashboard/
-│   │   ├── ConnectionPanel.tsx  # USB / Bluetooth connect buttons + status
-│   │   ├── NodeList.tsx         # Sidebar: all nodes with battery, role, last seen
-│   │   ├── MessageLog.tsx       # Scrolling live message feed
-│   │   └── SOSAlerts.tsx        # Active SOS cards with acknowledge / resolve
-│   ├── map/
-│   │   └── MeshMap.tsx          # Leaflet map, node markers, popup info
-│   ├── topology/
-│   │   ├── TopologyViewer.tsx   # Container: polls API, layout, tooltips
-│   │   ├── TopologyGraph.tsx    # D3 force-directed graph (SVG)
-│   │   ├── MeshHealthScore.tsx  # Weighted health score + bar chart
-│   │   └── hooks/
-│   │       └── useTopologyData.ts  # Polling hook, new-edge detection for animation
-│   └── dead-man-switch/
-│       ├── DMSAlertBanner.tsx   # Alert bar across top of screen when DMS fires
-│       ├── DMSConfigPanel.tsx   # Per-node settings panel (timeout, escalation)
-│       ├── DMSEventLog.tsx      # Table of all DMS events with filter
-│       └── hooks/
-│           └── useDMSMonitor.ts # setInterval hook — runs DMS check every 60s
+│   ├── dashboard/              # ConnectionPanel, NodeList, MessageLog, SOSAlerts
+│   ├── map/MeshMap.tsx         # Leaflet map with animated node markers
+│   ├── topology/               # D3 graph, health score, topology viewer
+│   └── dead-man-switch/        # Alert banner, event log, DMS monitor hook
 │
 ├── lib/
-│   ├── db.ts                   # SQLite singleton (one connection, WAL mode)
-│   ├── schema.ts               # CREATE TABLE IF NOT EXISTS for all tables
-│   ├── dms-monitor.ts          # Core DMS check logic (silence detection, escalation)
-│   └── meshtastic/
-│       ├── serial.ts           # WebSerial connection wrapper
-│       ├── bluetooth.ts        # Web Bluetooth connection wrapper
-│       └── packet-handler.ts   # Decodes packets, routes to API routes
+│   ├── db.ts                   # SQLite singleton (WAL mode)
+│   ├── schema.ts               # All table definitions
+│   ├── mqtt-client.ts          # Server-side MQTT singleton
+│   ├── dms-monitor.ts          # DMS silence detection logic
+│   └── meshtastic/             # WebSerial, BLE, packet decoder
 │
+├── bridge.py                   # Python serial bridge for Pi deployment
 └── scripts/
-    └── simulate-nodes.ts       # Dev simulator — 10 nodes, topology, messages, DMS demo
+    └── simulate-nodes.ts       # Dev/demo simulator — 10 nodes, keyboard controls
 ```
-
----
-
-## Database Schema
-
-All data is stored in `mesh.db` (SQLite, created automatically on first run).
-
-### `nodes`
-One row per Meshtastic node ever seen. Upserted on every received packet.
-
-| Column | Type | Description |
-|---|---|---|
-| `node_id` | TEXT PK | Hex ID e.g. `!a1b2c3d4` |
-| `long_name` | TEXT | Full display name |
-| `short_name` | TEXT | 4-char callsign |
-| `role` | TEXT | `CLIENT`, `ROUTER`, `ROUTER_CLIENT`, `REPEATER` |
-| `latitude/longitude` | REAL | GPS coordinates (decimal degrees) |
-| `battery_level` | INT | 0–100% |
-| `last_heard` | INT | Unix timestamp of most recent packet |
-| `snr` | REAL | Signal-to-noise ratio of last received packet |
-| `rssi` | INT | Received signal strength (dBm) |
-| `hops_away` | INT | How many relay hops from base node |
-
-### `messages`
-All text messages received from the mesh.
-
-### `sos_events`
-SOS alerts. A node triggers one by sending a message containing "SOS", or the simulator can inject them directly. Has `acknowledged_at` and `resolved_at` timestamps.
-
-### `packet_log`
-Raw log of every packet received — portnum, hop info, RSSI/SNR. Used for debugging and future analysis.
-
-### `neighbour_info`
-One row per directed edge in the mesh topology. Upserted on every `NEIGHBORINFO_APP` packet — keeps only the latest SNR reading per node pair.
-
-| Column | Description |
-|---|---|
-| `node_id` | The node reporting |
-| `neighbour_id` | The neighbour it can hear |
-| `snr` | SNR of that link |
-| `timestamp` | When last seen |
-
-### `dms_config`
-Per-node Dead Man's Switch configuration.
-
-| Column | Description |
-|---|---|
-| `enabled` | 0 or 1 |
-| `silence_timeout_minutes` | How long silent before trigger (default 45m) |
-| `escalation_minutes` | How long after trigger before escalating to SOS (default 15m) |
-| `contact_note` | Free text — next of kin, medical info, etc. |
-
-### `dms_events`
-A DMS event is created when a node's silence exceeds its timeout. Tracks the full lifecycle: triggered → acknowledged → escalated → resolved.
-
----
-
-## API Routes
-
-All routes are Next.js Route Handlers under `app/api/`. They all use the SQLite singleton via `getDb()`.
-
-### `GET /api/nodes`
-Returns all nodes ordered by `last_heard` descending.
-
-### `POST /api/nodes`
-Upserts a node. Uses `ON CONFLICT(node_id) DO UPDATE` — only overwrites non-null values, so partial updates (e.g. just battery) don't wipe GPS coordinates.
-
-### `GET /api/neighbour-info`
-Returns the full topology graph shaped for D3:
-```json
-{
-  "nodes": [{ "id": "!abc123", "role": "ROUTER", "status": "online", "battery": 85 }],
-  "edges": [{ "source": "!abc123", "target": "!def456", "snr": 8.5 }],
-  "lastUpdated": 1700000000
-}
-```
-Node `status` is computed server-side: `online` < 5 min, `marginal` 5–15 min, `offline` > 15 min.
-
-### `POST /api/neighbour-info`
-Upserts one directed edge: `{ nodeId, neighbourId, snr }`.
-
-### `GET/POST/PATCH /api/dead-man-switch/events`
-- `PATCH` accepts `action`: `"acknowledge"`, `"escalate"`, or `"resolve"` with optional `resolution` and `resolutionNote`.
-
----
-
-## Meshtastic Connection Layer
-
-`lib/meshtastic/` handles real hardware connections. Both are lazy-loaded (dynamic imports inside async functions) so they never run server-side.
-
-### `serial.ts` / `bluetooth.ts`
-Singleton wrappers around `@meshtastic/js` `SerialConnection` / `BleConnection`. The `ConnectionPanel` component calls these on button click.
-
-### `packet-handler.ts`
-Called for every decoded packet from the radio. Handles these port numbers:
-
-| PortNum | Action |
-|---|---|
-| `TEXT_MESSAGE_APP` (1) | Save to `messages`, check for "SOS" keyword |
-| `POSITION_APP` (3) | Decode `PositionSchema`, upsert node lat/lon |
-| `NODEINFO_APP` (4) | Decode `UserSchema`, upsert node name/role |
-| `TELEMETRY_APP` (67) | Decode `TelemetrySchema`, upsert battery/voltage |
-| `NEIGHBORINFO_APP` (69) | Decode `NeighborInfoSchema`, upsert all neighbour edges |
-
-Protobuf decoding uses `fromBinary(Schema, payload)` from `@bufbuild/protobuf` with schemas from `@meshtastic/js`'s `Protobuf` namespace.
-
----
-
-## Topology Graph (D3)
-
-`components/topology/TopologyGraph.tsx` runs a D3 force simulation entirely in an SVG element.
-
-**Forces:**
-- `forceLink` — pulls connected nodes together (distance 120px)
-- `forceManyBody` — repels all nodes from each other (strength -300)
-- `forceCenter` — keeps the graph centred in the viewport
-- `forceCollide` — prevents node overlap (radius 30)
-
-**Node shapes by role:**
-- `CLIENT` — circle
-- `ROUTER` / `REPEATER` — hexagon
-- `ROUTER_CLIENT` — star
-
-**Colours:**
-- Node fill: green (online), amber (marginal), red (offline), grey (unknown)
-- Link stroke: green (SNR > 5), yellow (0–5), red (< 0)
-- Battery arc: thin ring around each node, green or red
-
-**Interactions:**
-- Drag nodes to pin them
-- Scroll to zoom
-- Hover node/edge for tooltip
-- Animated blue dots travel along edges when new topology data arrives
-
-**Health Score** (`MeshHealthScore.tsx`) is a weighted average:
-- 40% — average node degree (how many connections each node has)
-- 30% — average SNR across all links
-- 30% — isolated node penalty (nodes with zero neighbours hurt the score)
 
 ---
 
 ## Dead Man's Switch
 
-The DMS is a safety system for field operatives. If a node goes silent for longer than its configured timeout, an alert fires so the coordinator knows to check on that person.
+Most emergency systems wait for someone to press a button. This one watches for silence. If a node stops transmitting for longer than its configured timeout, an alert fires automatically — no action required from the field operative.
 
-**How it works:**
+```
+[node goes silent]
+      |
+      | silence_timeout_minutes exceeded (default 45 min, demo 2 min)
+      |
+[DMS triggered] → coordinator sees alert banner
+      |
+      | escalation_minutes exceeded without acknowledgement
+      |
+[escalated to SOS] → node flashes red on map
+      |
+[coordinator resolves] → marked safe / dismissed
+```
 
-1. Each node can have a DMS config stored in `dms_config` (set via the dashboard or API)
-2. `lib/dms-monitor.ts` runs client-side via `useDMSMonitor` hook (every 60 seconds)
-3. For each enabled node it checks: `now - node.last_heard >= silence_timeout`
-4. If exceeded and no active event exists → `POST /api/dead-man-switch/events` (trigger)
-5. If active event exists and not acknowledged within `escalation_minutes` → `PATCH` escalate
-6. Escalation creates a full SOS event and turns the banner red
-
-**Lifecycle:** `triggered` → `acknowledged` → `escalated` → `resolved` (`safe` / `escalated` / `dismissed`)
+**Config per node** (stored in `dms_config` table):
+- `silence_timeout_minutes` — how long before trigger (default 45)
+- `escalation_minutes` — how long before SOS escalation (default 15)
+- `contact_note` — free text, e.g. next of kin, medical info
 
 ---
 
-## VPS / Cloud Deployment (Planned)
+## Database Schema
 
-The current setup is designed for **local network operation** — a laptop at a command post, radio plugged in via USB, with everyone on the same WiFi. This is the primary use case and works without internet.
+All data lives in `mesh.db`, created automatically on first run.
 
-The planned VPS deployment is for situations where teams are geographically distributed and internet infrastructure is still intact (training exercises, multi-site coordination, remote monitoring):
-
-```
-[Field site A — Meshtastic radio + laptop]
-        |
-   [VPS — runs the dashboard, publicly accessible]
-        |
-[Field site B — browser-only viewers]
-[HQ — browser-only command overview]
-```
-
-**Planned stack:**
-- VPS (e.g. DigitalOcean, Hetzner, or any Ubuntu server)
-- PM2 for process management and auto-restart on boot
-- Nginx as a reverse proxy (port 80/443 → 3000)
-- Let's Encrypt for HTTPS (required for WebSerial on non-localhost)
-- DB_PATH env var to persist `mesh.db` outside the app directory
-
-This is not yet implemented. See `DEPLOYMENT.md` for the current local setup guide and a Railway cloud hosting option that works today.
+- **`nodes`** — one row per node ever seen. GPS, battery, role, signal strength, last heard.
+- **`messages`** — all text messages with sender, recipient, channel, transport, timestamp.
+- **`sos_events`** — SOS alerts with acknowledged/resolved timestamps.
+- **`neighbour_info`** — mesh topology edges. One row per directed node pair, latest SNR.
+- **`dms_config`** — per-node Dead Man's Switch settings.
+- **`dms_events`** — DMS alert lifecycle tracking.
 
 ---
 
-## Simulator
+## What Makes This Different
 
-`scripts/simulate-nodes.ts` — run with `npx tsx scripts/simulate-nodes.ts`.
+No existing Meshtastic tooling combines all of the following:
 
-Creates 10 nodes around Limerick (52.6638°N, 8.6267°W):
-- 3 ROUTERs, 1 REPEATER, 6 CLIENTs
-- 14 topology edges with realistic SNR values
-- Nodes drift position slightly every 10s
-- Messages sent every 15s
-- Neighbour info broadcast every 30s
-- ~4% chance of SOS per node per 20s tick
-- 2 nodes have DMS enabled with a 2-minute silence timeout (shortened for demo)
-- Randomly silences a DMS node (~1.5% chance per 45s tick) to demo the alert
+- Fully offline — no MQTT broker dependency, no cloud
+- Raspberry Pi as shared access point with multi-user browser access
+- Python bridge for shared serial access across the local network
+- Dead Man's Switch with automatic silence detection and escalation
+- Purpose-built first responder workflow — not a general analytics tool
 
-The simulator POSTs directly to `http://localhost:3000/api/*`. Change `SIM_URL` env var to point elsewhere.
+See `NOVELTY.md` for a detailed comparison with existing tools (Malla, PotatoMesh, the official web client).
